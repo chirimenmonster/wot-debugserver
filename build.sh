@@ -1,12 +1,15 @@
-#! /bin/sh
+#! /bin/bash
+
+MODBASE=scripts/client/gui/mods
+MODNAME=chirimen.replserver_0.1.0
 
 rm -r tmp
 
-python2 -m compileall -d scripts/client/gui/mods mods
+python2 -m compileall -d $MODBASE mods
 
-mkdir -p tmp/res/scripts/client/gui/mods/replserver
-find mods -name '*.pyc' -exec mv {} tmp/res/scripts/client/gui/{} \;
-( cd tmp; zip -0r chirimen.replserver.wotmod res )
+mkdir -p tmp/res/$MODBASE/replserver
+( cd mods; find . -name '*.pyc' -exec mv {} ../tmp/res/$MODBASE/{} \; )
+( cd tmp; zip -0r $MODNAME.wotmod res )
 rm -r tmp/res
 
 python2 -m compileall client/client.py
