@@ -1,12 +1,6 @@
-XFW_MOD_VERSION = '1.3.0'
-XFW_MOD_URL = ''
-XFW_MOD_UPDATE_URL = ''
-XFW_GAME_VERSIONS = ['0.9.6']
-
-run = True
 
 import datetime
-import tcprepl
+from replserver import tcprepl
 
 def log(text):
     ds = datetime.time.strftime(datetime.datetime.now().time(), '%H:%M')
@@ -24,7 +18,7 @@ def run_server():
         traceback.print_exc()
     log('Server stopped!')
 
-if run:
+def init():
     log('starting..')
 
     try:
