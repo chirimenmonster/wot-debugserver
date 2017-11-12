@@ -1,4 +1,4 @@
-wot-debugserver
+wot-replserver
 ===============
 
 This is a mod for World of Tanks to make development easier. When installed, it
@@ -6,35 +6,17 @@ spawns server thread in background that listens for local TCP connection to
 provide REPL interface to BigWorld engine. This might be useful for trying how
 things work in BigWorld engine before you implement the functionality in a mod.
 
+This mod is forked from wot-debugserver by juho-p.
+Free XVM and wotmod format.
+
 Getting started
 ===============
 
 Step 1: Setup server
 --------------------
 
-If you have XVM installed, you only need to execute steps below. If not, see
-the note below.
-
-You need to have required `.pyc` files in
-`res_mods/mods/packages/wot-debugserver/python/` -folder. Compile all `.py`
-files using build.cmd script and copy resulting files to that folder.
-
-If you have Cygwin and git and python2.7 installed (or are using Linux or some
-other environment where you have bash and git), you can use following commands:
-
-    cd /path/to/World_of_Tanks/
-    cd res_mods/mods/packages
-    # I clone to replserver because it sounds nicer than wot-debugserver
-    git clone https://github.com/juho-p/wot-debugserver.git replserver
-    cd replserver
-    python -m compileall .
-
-NOTE: If you don't have XVM installed, you need to use the mod loader that is
-included in this repository. It loads modules that are in
-`res_mods/mods/packages/*/python` folders, similar to what XVM does. To install
-it, simply run `install_loader.sh` script under the `loader` folder (in the
-bash shell), or manually compile the `mod_.py` file and copy the .pyc into
-`res_mods/[wot version]/scripts/client/gui/mods/` folder.
+download zipped package from release page, and extract.
+copy wotmod file to <WoT_game_folder>/mods/<WoT_version>/
 
 Step 2: Start game
 ------------------
