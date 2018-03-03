@@ -1,20 +1,29 @@
-[
-    {
-        "method":   "apply+python",
-        "root":     "res",
-        "reldir":   "scripts/client/gui/mods",
-        "files":    [ "mods/mod_replserver.py" ]
-    },
-    {
-        "method":   "python",
-        "root":     "res",
-        "reldir":   "scripts/client/gui/mods/replserver",
-        "files":    [ "mods/replserver/__init__.py", "mods/replserver/tcprepl.py", "mods/replserver/wotdbg.py" ]
-    },
-    {
-        "method":   "plain",
-        "root":     "",
-        "reldir":   "",
-        "files":    [ "LICENSE.txt", "README.md" ]
-    }
-]
+{
+    "package":  "${package}",
+    "files":    [
+        {
+            "method":   "apply+python",
+            "root":     "res",
+            "reldir":   "scripts/client/gui/mods",
+            "files":    [ "mods/mod_replserver.py" ]
+        },
+        {
+            "method":   "python",
+            "root":     "res",
+            "reldir":   "scripts/client/gui/mods/replserver",
+            "files":    [ "mods/replserver/__init__.py", "mods/replserver/tcprepl.py", "mods/replserver/wotdbg.py" ]
+        },
+        {
+            "method":   "plain",
+            "root":     "",
+            "reldir":   "",
+            "files":    [ "LICENSE.txt", "README.md" ]
+        },
+        {
+            "method":   "apply",
+            "root":     "",
+            "reldir":   "",
+            "files":    [ "meta.xml" ]
+        }
+    ]
+}
