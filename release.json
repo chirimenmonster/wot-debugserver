@@ -5,19 +5,19 @@
             "method":   "plain",
             "root":     "",
             "reldir":   "mods/${wot_version}",
-            "files":    [ "build/${package}" ]
+            "source":   [ "build/${package}" ]
         },
         {
             "method":   "plain",
             "root":     "",
             "reldir":   "",
-            "files":    [ "README.md", "LICENSE.txt" ]
+            "source":   [ "README.md", "LICENSE.txt" ]
         },
         {
             "method":   "python",
             "root":     "client",
             "reldir":   "",
-            "files":    [ "client/client.py" ]
+            "source":   [ "client/client.py" ]
         }
     ]
 }
