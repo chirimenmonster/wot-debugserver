@@ -4,8 +4,14 @@
         {
             "method":   "plain",
             "root":     "",
+            "reldir":   "mods/${wot_version}",
+            "files":    [ "build/${package}" ]
+        },
+        {
+            "method":   "plain",
+            "root":     "",
             "reldir":   "",
-            "files":    [ "build/${package}", "README.md", "LICENSE.txt" ]
+            "files":    [ "README.md", "LICENSE.txt" ]
         },
         {
             "method":   "python",
