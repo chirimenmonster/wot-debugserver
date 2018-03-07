@@ -1,23 +1,20 @@
 {
     "package":  "${release_package}",
-    "files":    [
+    "sources":  [
         {
             "method":   "plain",
-            "root":     "",
-            "reldir":   "mods/${wot_version}",
-            "source":   [ "build/${package}" ]
+            "root":     "mods/${wot_version}",
+            "files":    [ "${BUILDDIR}/${package}" ]
         },
         {
             "method":   "plain",
             "root":     "",
-            "reldir":   "",
-            "source":   [ "README.md", "LICENSE.txt" ]
+            "files":    [ "README.md", "LICENSE.txt" ]
         },
         {
-            "method":   "python",
+            "method":   "plain",
             "root":     "client",
-            "reldir":   "",
-            "source":   [ "client/client.py" ]
+            "files":    [ "client/client.py" ]
         }
     ]
 }
