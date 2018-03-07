@@ -1,83 +1,118 @@
 #!/usr/bin/python
 
 import socket
-import readline
 
 HOST = '127.0.0.1'
 PORT = 2222
 
-socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-socket.connect((HOST, PORT))
+NEWLINE = '\r\n'
+READYMSG = '~~~ok!~~~'
 
-stream = socket.makefile()
 
-newline = '\r\n'
-readymsg = '~~~ok!~~~'
+class SocketClose(Exception):
+    pass
 
-def write_stream(msg):
-    stream.write(msg + newline)
-    stream.flush()
 
-def exec_sync(cmd):
-    write_stream(cmd)
-    result = []
-    for line in stream:
-        line = line.strip()
-        if line == readymsg:
-            break
-        else:
+class Connection(object):
+
+    def __init__(self, host, port):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.connect((host, port))
+        self.stream = s.makefile()
+    
+    def exec_sync(self, cmd):
+        self.stream.write(cmd + NEWLINE)
+        self.stream.flush()
+        result = []
+        for line in self.stream:
+            line = line.strip()
+            if line == READYMSG:
+                return result
             result.append(line)
-    return result
+        raise SocketClose()
 
-completer_cache = {}
-def completer_cache_val(v, f):
-    if v not in completer_cache:
-        completer_cache[v] = f()
-    return completer_cache[v]
+    def exec_sync_print(self, cmd):
+        result = self.exec_sync(cmd)
+        for line in result:
+            print line
 
-def completer(text, state):
-    def get_locals():
-        return exec_sync("echo('\\r\\n'.join(locals().keys()))")
-    def get_dir(code):
-        return exec_sync("echo('\\r\\n'.join(dir(%s)))" % code)
-    def get_path_dir(locs, path):
+
+class Completer(object):
+
+    def __init__(self, connection):
+        self.connection = connection 
+        self.clear_cache()
+
+    def clear_cache(self):
+        self.__cache = {}
+
+    def cache_val(self, v, f):
+        if v not in self.__cache:
+            self.__cache[v] = f()
+        return self.__cache[v]
+
+    def get_locals(self):
+        return self.connection.exec_sync("echo('\\r\\n'.join(locals().keys()))")
+
+    def get_dir(self, code):
+        return self.connection.exec_sync("echo('\\r\\n'.join(dir(%s)))" % code)
+
+    def get_path_dir(self, locs, path):
         attrs = locs
         for i, token in enumerate(path):
             if token in attrs:
-                attrs = get_dir('.'.join(start[0:i+1]))
+                attrs = self.get_dir('.'.join(path[0:i+1]))
             else:
                 return []
         return attrs
 
-    if text == '':
-        return None
+    def completer(self, text, state):
+        if text == '':
+            return None
+        try:
+            locs = self.cache_val('locals', self.get_locals)
+            if '.' in text:
+                tokens = text.split('.')
+                start = tokens[0:-1]
+                last = tokens[-1]
+
+                name = 'dir_' + '.'.join(start)
+                attrs = self.cache_val(name, lambda: self.get_path_dir(locs, start))
+                
+                suggestion = [ w for w in attrs if w.startswith(last) ][state]
+                return '.'.join(start + [suggestion])
+            else:
+                return [ w for w in locs if w.startswith(text) ][state]
+        except IndexError:
+            return None
+
+
+def main():
+    connection = Connection(HOST, PORT)
+    completer = Completer(connection)
+    
     try:
-        locs = completer_cache_val('locals', get_locals)
-        if '.' in text:
-            tokens = text.split('.')
-            start = tokens[0:-1]
-            last = tokens[-1]
+        import readline
+        readline.set_completer(completer.completer)
+        readline.parse_and_bind('tab: complete')
+    except ImportError:
+        pass
 
-            attrs = completer_cache_val('dir_' + '.'.join(start), lambda: get_path_dir(locs, start))
+    try:
+        connection.exec_sync_print('__READYMSG = "%s"' % READYMSG)
 
-            suggestion = [w for w in attrs if w.startswith(last)][state]
-            return '.'.join(start + [suggestion])
-        else:
-            return [w for w in locs if w.startswith(text)][state]
-    except IndexError:
-        return None
+        while True:
+            try:
+                completer.clear_cache()
+                cmd = raw_input('> ')
+                connection.exec_sync_print(cmd.strip())
+            except EOFError:
+                break
 
-readline.set_completer(completer)
-readline.parse_and_bind('tab: complete')
+    except SocketClose:
+        pass
+    print 'connection closed'
 
-write_stream('__READYMSG = "%s"' % readymsg)
-for line in stream:
-    line = line.strip()
-    if line == readymsg:
-        cmd = raw_input('> ')
-        write_stream(cmd.strip())
-        completer_cache = {}
-    else:
-        print line
 
-print 'connection closed'
+if __name__ == "__main__":
+    main()
