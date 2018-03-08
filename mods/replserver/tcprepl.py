@@ -1,67 +1,76 @@
-write_client = None
-
 import socket
+import wotdbg
 
+BIND = '127.0.0.1'
 PORT = 2222
+
+NEWLINE = '\r\n'
+
+GREETINGMSG = 'welcome to WoT REPL interface, {}, ver.{}'.format('${mod_id}', '${version}')
+
+class Repl(object):
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.stream = conn.makefile()
+        wotdbg.echo = self.echo
+        self.local_vars = { 'echo': self.echo, 'wotdbg': wotdbg }
+        self.readymsg = None
+
+    def echo(self, s):
+        self.stream.write(str(s) + NEWLINE)
+        self.stream.flush()
+
+    def start(self, once=False):
+        self.echo(GREETINGMSG)
+        for line in self.stream:
+            line = line.strip()
+            if line == 'QUIT':
+                break
+            if line.startswith('__READYMSG = '):
+                vars = {}
+                exec line in vars
+                self.readymsg = vars.get('__READYMSG', None)
+                self.echo(self.readymsg)
+                continue
+            self.repl(line)
+            if self.readymsg is not None:
+                self.echo(self.readymsg)
+            if once:
+                break
+
+    def shutdown(self):
+        self.stream.close()
+        self.conn.close()
+
+    def repl(self, line):
+        try:
+            try:
+                result = eval(line, self.local_vars)
+                self.echo(result)
+            except SyntaxError:
+                exec line in self.local_vars
+        except Exception:
+            import traceback
+            self.echo(traceback.format_exc())
+
 
 def run_repl():
     '''
     Run debug server until connection is closed
     '''
-    global write_client
-
-    newline = '\r\n'
-
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(('127.0.0.1', PORT))
+    s.bind((BIND, PORT))
     s.listen(1)
 
-    def repl(filestream, once=False):
-        global write_client
-        import wotdbg
+    conn, addr = s.accept()
+    repl = Repl(conn)
+    repl.start()
 
-        def echo(s):
-            filestream.write(str(s))
-            filestream.write(newline)
-            filestream.flush()
-        write_client = echo
+    repl.shutdown()
+    s.close()
 
-        local_vars = {'echo': echo, 'wotdbg': wotdbg}
-
-        for line in filestream:
-            line = line.strip()
-            if line == 'QUIT':
-                break
-            try:
-                try:
-                    try_exec = False
-                    res = eval(line, local_vars)
-                    echo(res)
-                except SyntaxError:
-                    try_exec = True
-                if try_exec:
-                    exec line in local_vars
-            except Exception, e:
-                import traceback
-                echo(traceback.format_exc())
-            readymsg = local_vars.get('__READYMSG', None)
-            if readymsg is not None:
-                echo(readymsg)
-            if once:
-                break
-        write_client = None
-
-    conn = f = None
-    try:
-        conn, addr = s.accept()
-        f = conn.makefile()
-        repl(f)
-    finally:
-        s.close()
-        if conn != None:
-            conn.close()
-            f.close()
 
 if __name__ == '__main__':
     run_repl()

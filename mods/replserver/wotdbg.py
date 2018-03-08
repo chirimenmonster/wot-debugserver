@@ -1,12 +1,10 @@
 import os.path
 
-import tcprepl
-import BigWorld
+try:
+    import BigWorld
+except ImportError:
+    BigWorld = None
 
-def echo(s):
-    '''Send string to client'''
-    if tcprepl.write_client is not None:
-        tcprepl.write_client(s)
 
 def exec_file(filename, exec_globals=None):
     '''
@@ -18,7 +16,7 @@ def exec_file(filename, exec_globals=None):
     if exec_globals is None:
         exec_globals = {}
 
-    if not os.path.isfile(filename):
+    if not os.path.isfile(filename) and BigWorld is not None:
         filename = BigWorld.wg_resolveFileName(filename)
 
     with open(filename, 'r') as f:

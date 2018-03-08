@@ -5,25 +5,17 @@
             "method":   "apply+python",
             "root":     "res",
             "reldir":   "scripts/client/gui/mods",
-            "files":    [ "mods/mod_replserver.py" ]
-        },
-        {
-            "method":   "python",
-            "root":     "res",
-            "reldir":   "scripts/client/gui/mods/replserver",
             "include":  "\\.py$$",
-            "dirs":     [ "mods/replserver" ]
+            "dirs":     [ "mods" ]
         },
         {
             "method":   "plain",
             "root":     "",
-            "reldir":   "",
             "source":   [ "LICENSE.txt", "README.md" ]
         },
         {
             "method":   "apply",
             "root":     "",
-            "reldir":   "",
             "source":   [ "meta.xml" ]
         }
     ]
