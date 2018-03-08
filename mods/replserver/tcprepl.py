@@ -24,6 +24,8 @@ class Repl(object):
     def start(self, once=False):
         self.echo(GREETINGMSG)
         for line in self.stream:
+            if line == '':
+                break
             line = line.strip()
             if line == 'QUIT':
                 break
@@ -66,7 +68,10 @@ def run_repl():
 
     conn, addr = s.accept()
     repl = Repl(conn)
-    repl.start()
+    try:
+        repl.start()
+    except socket.error:
+        pass
 
     repl.shutdown()
     s.close()
