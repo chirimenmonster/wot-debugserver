@@ -11,12 +11,12 @@
         {
             "method":   "plain",
             "root":     "",
-            "source":   [ "LICENSE.txt", "README.md" ]
+            "files":    [ "LICENSE.txt", "README.md" ]
         },
         {
             "method":   "apply",
             "root":     "",
-            "source":   [ "meta.xml" ]
+            "files":    [ "meta.xml" ]
         }
     ]
 }
