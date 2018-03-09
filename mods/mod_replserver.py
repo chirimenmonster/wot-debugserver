@@ -1,33 +1,15 @@
 
-import datetime
-from replserver import tcprepl
-
-def log(text):
-    ds = datetime.time.strftime(datetime.datetime.now().time(), '%H:%M')
-    print 'replserver %s: %s' % (ds, text)
-
-def run_server():
-    log('run server...')
-    try:
-        while True:
-            tcprepl.run_repl()
-            log('REPL stopped, restarting...')
-    except:
-        log('* Crashed *')
-        import traceback
-        traceback.print_exc()
-    log('Server stopped!')
+from replserver.tcprepl import runReplServer, log
 
 def init():
-    log('starting..')
+    log('{} {}'.format('${mod_id}', '${version}'))
 
     try:
         import threading
-        thread = threading.Thread(target=run_server, args=())
+        thread = threading.Thread(target=runReplServer, args=())
         thread.setDaemon(True)
-        thread.start()
-
         log('thread started..')
+        thread.start()
     except:
         import traceback
         traceback.print_exc()

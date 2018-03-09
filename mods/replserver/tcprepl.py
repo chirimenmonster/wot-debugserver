@@ -1,29 +1,45 @@
-import socket
+import SocketServer
 import wotdbg
+import datetime
 
-BIND = '127.0.0.1'
+HOST = '127.0.0.1'
 PORT = 2222
 
 NEWLINE = '\r\n'
 
 GREETINGMSG = 'welcome to WoT REPL interface, {}, ver.{}'.format('${mod_id}', '${version}')
 
-class Repl(object):
+def __log(text):
+    ds = datetime.time.strftime(datetime.datetime.now().time(), '%H:%M')
+    print 'replserver %s: %s' % (ds, text)
 
-    def __init__(self, conn):
-        self.conn = conn
-        self.stream = conn.makefile()
+try:
+    import BigWorld
+    log = lambda s: BigWorld.logInfo('${mod_id}', s, None)
+except ImportError:
+    log = __log
+
+class ReplRequestHandler(SocketServer.StreamRequestHandler, object):
+
+    def setup(self):
+        super(ReplRequestHandler, self).setup()
+        log('REPL connection start')
         wotdbg.echo = self.echo
         self.local_vars = { 'echo': self.echo, 'wotdbg': wotdbg }
         self.readymsg = None
+    
+    def finish(self):
+        super(ReplRequestHandler, self).finish()
+        log('REPL connection close')
 
-    def echo(self, s):
-        self.stream.write(str(s) + NEWLINE)
-        self.stream.flush()
+    def echo(self, msg):
+        self.rfile.write(str(msg) + NEWLINE)
+        self.rfile.flush()
 
-    def start(self, once=False):
+    def handle(self):
         self.echo(GREETINGMSG)
-        for line in self.stream:
+        while True:
+            line = self.rfile.readline()
             if line == '':
                 break
             line = line.strip()
@@ -38,12 +54,6 @@ class Repl(object):
             self.repl(line)
             if self.readymsg is not None:
                 self.echo(self.readymsg)
-            if once:
-                break
-
-    def shutdown(self):
-        self.stream.close()
-        self.conn.close()
 
     def repl(self, line):
         try:
@@ -57,25 +67,10 @@ class Repl(object):
             self.echo(traceback.format_exc())
 
 
-def run_repl():
-    '''
-    Run debug server until connection is closed
-    '''
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind((BIND, PORT))
-    s.listen(1)
-
-    conn, addr = s.accept()
-    repl = Repl(conn)
-    try:
-        repl.start()
-    except socket.error:
-        pass
-
-    repl.shutdown()
-    s.close()
+def runReplServer():
+    server = SocketServer.TCPServer((HOST, PORT), ReplRequestHandler)
+    server.serve_forever()
 
 
 if __name__ == '__main__':
-    run_repl()
+    runReplServer()
