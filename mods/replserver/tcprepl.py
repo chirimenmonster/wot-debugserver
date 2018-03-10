@@ -7,6 +7,7 @@ HOST = '127.0.0.1'
 PORT = 2222
 
 NEWLINE = '\r\n'
+TELNET_PROMPT = '> '
 
 MOD_ID = '${mod_id}'
 MOD_VERSION = '${version}'
@@ -56,6 +57,8 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         self.readymsg = None
         self.buffer = ''
         self.greeting = 'welcome to WoT REPL interface, {}, {}'.format(MOD_ID, MOD_VERSION)
+        self.prompt = TELNET_PROMPT
+        #self.prompt = None
    
     def finish(self):
         super(ReplRequestHandler, self).finish()
@@ -78,11 +81,18 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
                 #proto.parse(data)
                 #result = proto.getCommand()
                 #self.__write(result)
+                if self.prompt is None:
+                    self.prompt = TELNET_PROMPT
+                    self.__write(self.prompt)
                 continue
+            elif data[0] == b'\x04':
+                return None
             break
         return data
 
     def __readline(self):
+        if self.prompt:
+            self.__write(self.prompt)
         while True:
             i = self.buffer.find('\n')
             if i >= 0:
@@ -96,6 +106,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         return result
 
     def __write(self, data):
+        logger.logDebug('SEND({}): {}'.format(len(data), repr(data)))
         self.request.sendall(data)
     
     def handle(self):
@@ -108,6 +119,9 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             if line == 'QUIT':
                 break
             if line.startswith('__READYMSG = '):
+                if self.prompt:
+                    self.echo('')
+                    self.prompt = None
                 vars = {}
                 exec line in vars
                 self.readymsg = vars.get('__READYMSG', None)
@@ -116,6 +130,8 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             self.repl(line)
             if self.readymsg is not None:
                 self.echo(self.readymsg)
+        if self.prompt:
+            self.echo('connection closing...')
 
     def repl(self, line):
         try:

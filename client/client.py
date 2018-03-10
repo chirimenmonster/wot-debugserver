@@ -25,7 +25,7 @@ class Connection(object):
         self.stream.flush()
         result = []
         for line in self.stream:
-            line = line.strip()
+            line = line.rstrip()
             if line == READYMSG:
                 return result
             result.append(line)
