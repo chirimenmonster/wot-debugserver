@@ -1,46 +1,108 @@
 import SocketServer
 import wotdbg
 import datetime
+#import telnetproto
 
 HOST = '127.0.0.1'
 PORT = 2222
 
 NEWLINE = '\r\n'
 
-GREETINGMSG = 'welcome to WoT REPL interface, {}, ver.{}'.format('${mod_id}', '${version}')
+MOD_ID = '${mod_id}'
+MOD_VERSION = '${version}'
 
-def __log(text):
-    ds = datetime.time.strftime(datetime.datetime.now().time(), '%H:%M')
-    print 'replserver %s: %s' % (ds, text)
+class __Log:
+    DEBUG = False
+
+    def getTime(self):
+        return datetime.time.strftime(datetime.datetime.now().time(), '%H:%M')
+
+    def logInfo(self, text):
+        print 'replserver %s: %s' % (self.getTime(), text)
+
+    def logDebug(self, text):
+        if self.DEBUG:
+            print 'replserver %s: %s' % (self.getTime(), text)
+
+logger = __Log()
+
 
 try:
     import BigWorld
-    log = lambda s: BigWorld.logInfo('${mod_id}', s, None)
-except ImportError:
-    log = __log
+    class __Log:
+        DEBUG = False
+        
+        def logInfo(self, text):
+            BigWorld.logInfo('${mod_id}', text, None)
+            
+        def logDebug(self, text):
+            if self.DEBUG:
+                BigWorld.logDebug('${mod_id}', text, None)
 
-class ReplRequestHandler(SocketServer.StreamRequestHandler, object):
+    logger = __Log()
+
+except ImportError:
+    pass
+
+
+
+class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
 
     def setup(self):
         super(ReplRequestHandler, self).setup()
-        log('REPL connection start')
+        logger.logInfo('REPL connection start')
         wotdbg.echo = self.echo
         self.local_vars = { 'echo': self.echo, 'wotdbg': wotdbg }
         self.readymsg = None
-    
+        self.buffer = ''
+        self.greeting = 'welcome to WoT REPL interface, {}, {}'.format(MOD_ID, MOD_VERSION)
+   
     def finish(self):
         super(ReplRequestHandler, self).finish()
-        log('REPL connection close')
+        logger.logInfo('REPL connection close')
 
     def echo(self, msg):
-        self.rfile.write(str(msg) + NEWLINE)
-        self.rfile.flush()
+        lines = str(msg).replace('\n', NEWLINE) 
+        self.__write(lines + NEWLINE)
 
-    def handle(self):
-        self.echo(GREETINGMSG)
+    def __recv(self):
         while True:
-            line = self.rfile.readline()
-            if line == '':
+            data = self.request.recv(1024)
+            logger.logDebug('RECV({}): {}'.format(len(data), repr(data)))
+            if len(data) == 0:
+                return None
+            if data[0] == b'\xff':
+                if data[1] == b'\xec':  # TELNET linemode EOF
+                    return None
+                #proto = telnetproto.TelnetProtocol()
+                #proto.parse(data)
+                #result = proto.getCommand()
+                #self.__write(result)
+                continue
+            break
+        return data
+
+    def __readline(self):
+        while True:
+            i = self.buffer.find('\n')
+            if i >= 0:
+                break
+            data = self.__recv()
+            if data is None:
+                return None
+            self.buffer += data
+        result = self.buffer[0:i+1]
+        self.buffer = self.buffer[i+1:]
+        return result
+
+    def __write(self, data):
+        self.request.sendall(data)
+    
+    def handle(self):
+        self.echo(self.greeting)
+        while True:
+            line = self.__readline()
+            if line == None:
                 break
             line = line.strip()
             if line == 'QUIT':
@@ -73,4 +135,7 @@ def runReplServer():
 
 
 if __name__ == '__main__':
+    logger.DEBUG = True
+    MOD_ID = 'tcpreply'
+    MOD_VERSION = 'test version'
     runReplServer()

@@ -1,14 +1,13 @@
-
-from replserver.tcprepl import runReplServer, log
+from replserver.tcprepl import runReplServer, logger
 
 def init():
-    log('{} {}'.format('${mod_id}', '${version}'))
-
     try:
         import threading
+        logger.DEBUG = ${debug}
+        logger.logInfo('{} {}'.format('${mod_id}', '${version}'))
         thread = threading.Thread(target=runReplServer, args=())
         thread.setDaemon(True)
-        log('thread started..')
+        logger.logInfo('thread started..')
         thread.start()
     except:
         import traceback
