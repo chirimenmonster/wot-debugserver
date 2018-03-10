@@ -43,6 +43,14 @@ distribution...)
 To use client.py, just run `python client.py` and it should automatically
 connect. If not, then the server mod did not start for some reason.
 
+Support Clients
+---------------
+
+* Cygwin or MSYS2 Python2 (recommended)
+* Windows Python2
+* PuTTY (Raw or Telnet)
+
+
 Example usage
 -------------
 
