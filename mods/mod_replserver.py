@@ -1,4 +1,5 @@
-from replserver.tcprepl import runReplServer, logger
+from replserver.tcprepl import runReplServer
+from replserver.logger import logger
 
 def init():
     try:

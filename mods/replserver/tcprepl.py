@@ -1,7 +1,9 @@
 import SocketServer
+from time import sleep
+
 import wotdbg
-import datetime
-#import telnetproto
+import telnetproto
+from logger import logger
 
 HOST = '127.0.0.1'
 PORT = 2222
@@ -11,40 +13,6 @@ TELNET_PROMPT = '> '
 
 MOD_ID = '${mod_id}'
 MOD_VERSION = '${version}'
-
-class __Log:
-    DEBUG = False
-
-    def getTime(self):
-        return datetime.time.strftime(datetime.datetime.now().time(), '%H:%M')
-
-    def logInfo(self, text):
-        print 'replserver %s: %s' % (self.getTime(), text)
-
-    def logDebug(self, text):
-        if self.DEBUG:
-            print 'replserver %s: %s' % (self.getTime(), text)
-
-logger = __Log()
-
-
-try:
-    import BigWorld
-    class __Log:
-        DEBUG = False
-        
-        def logInfo(self, text):
-            BigWorld.logInfo('${mod_id}', text, None)
-            
-        def logDebug(self, text):
-            if self.DEBUG:
-                BigWorld.logDebug('${mod_id}', text, None)
-
-    logger = __Log()
-
-except ImportError:
-    pass
-
 
 
 class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
@@ -58,7 +26,8 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         self.buffer = ''
         self.greeting = 'welcome to WoT REPL interface, {}, {}'.format(MOD_ID, MOD_VERSION)
         self.prompt = TELNET_PROMPT
-        #self.prompt = None
+        self.telnet = telnetproto.TelnetProtocol()
+
    
     def finish(self):
         super(ReplRequestHandler, self).finish()
@@ -77,10 +46,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             if data[0] == b'\xff':
                 if data[1] == b'\xec':  # TELNET linemode EOF
                     return None
-                #proto = telnetproto.TelnetProtocol()
-                #proto.parse(data)
-                #result = proto.getCommand()
-                #self.__write(result)
+                self.__write(self.telnet.negotiation(data))
                 if self.prompt is None:
                     self.prompt = TELNET_PROMPT
                     self.__write(self.prompt)
@@ -106,11 +72,23 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         return result
 
     def __write(self, data):
+        if len(data) == 0:
+            return
         logger.logDebug('SEND({}): {}'.format(len(data), repr(data)))
         self.request.sendall(data)
     
     def handle(self):
-        self.echo(self.greeting)
+        data = None
+        while True:
+            self.__write(self.telnet.negotiation(data))
+            termtype = self.telnet.getState('TERM')
+            if termtype is not None:
+                break;
+            data = self.request.recv(1024)
+        if termtype =='REPLCLIENT':
+            self.prompt = None
+        sleep(0.5)  # adhoc: prevent packet integration
+        self.echo(self.greeting + ', TERM={}'.format(termtype))
         while True:
             line = self.__readline()
             if line == None:
@@ -119,9 +97,6 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             if line == 'QUIT':
                 break
             if line.startswith('__READYMSG = '):
-                if self.prompt:
-                    self.echo('')
-                    self.prompt = None
                 vars = {}
                 exec line in vars
                 self.readymsg = vars.get('__READYMSG', None)

@@ -1,21 +1,12 @@
 {
     "package":  "${package}",
-    "sources":    [
+    "sources":  [
         {
             "method":   "apply+python",
             "root":     "res",
             "reldir":   "scripts/client/gui/mods",
-            "files":    [ "mods/mod_replserver.py" ]
-        },
-        {
-            "method":   "apply+python",
-            "root":     "res",
-            "reldir":   "scripts/client/gui/mods/replserver",
-            "files":     [
-                "mods/replserver/__init__.py",
-                "mods/replserver/tcprepl.py",
-                "mods/replserver/wotdbg.py"
-            ]
+            "include":  "\\.py$$",
+            "dirs":     [ "mods" ]
         },
         {
             "method":   "plain",

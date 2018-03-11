@@ -18,14 +18,52 @@ class Connection(object):
     def __init__(self, host, port):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((host, port))
-        self.stream = s.makefile()
-    
+        self.socket = s
+        self.buffer = ''
+        self.fake_telnet_negotiation()
+
+    def __recv(self):
+        while True:
+            data = self.socket.recv(1024)
+            if len(data) == 0:
+                return None
+            if data[0] == b'\xff':
+                continue
+            break
+        return data
+
+    def __readline(self):
+        while True:
+            i = self.buffer.find('\n')
+            if i >= 0:
+                break
+            data = self.__recv()
+            if data is None:
+                return None
+            self.buffer += data
+        result = self.buffer[0:i+1]
+        self.buffer = self.buffer[i+1:]
+        return result
+
+    def __write(self, data):
+        if len(data) == 0:
+            return
+        self.socket.sendall(data)
+
+    def fake_telnet_negotiation(self):
+        # IAC WILL terminal-type
+        self.__write(b'\xff\xfb\x18')
+        # IAC SB terminal-type IS REPLCLIENT IAC SE
+        self.__write(b'\xff\xfa\x18\x00REPLCLIENT\xff\xf0')
+
+    def getGreeting(self):
+        print self.__readline().rstrip()
+
     def exec_sync(self, cmd):
-        self.stream.write(cmd + NEWLINE)
-        self.stream.flush()
+        self.__write(cmd + NEWLINE)
         result = []
-        for line in self.stream:
-            line = line.rstrip()
+        while True:
+            line = self.__readline().rstrip()
             if line == READYMSG:
                 return result
             result.append(line)
@@ -99,6 +137,7 @@ def main():
         pass
 
     try:
+        connection.getGreeting()
         connection.exec_sync_print('__READYMSG = "%s"' % READYMSG)
 
         while True:
