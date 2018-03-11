@@ -1,5 +1,4 @@
 import SocketServer
-from time import sleep
 
 import wotdbg
 import telnetproto
@@ -87,7 +86,6 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             data = self.request.recv(1024)
         if termtype =='REPLCLIENT':
             self.prompt = None
-        sleep(0.5)  # adhoc: prevent packet integration
         self.echo(self.greeting + ', TERM={}'.format(termtype))
         while True:
             line = self.__readline()

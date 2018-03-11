@@ -23,13 +23,9 @@ class Connection(object):
         self.fake_telnet_negotiation()
 
     def __recv(self):
-        while True:
-            data = self.socket.recv(1024)
-            if len(data) == 0:
-                return None
-            if data[0] == b'\xff':
-                continue
-            break
+        data = self.socket.recv(1024)
+        if len(data) == 0:
+            return None
         return data
 
     def __readline(self):
@@ -41,6 +37,8 @@ class Connection(object):
             if data is None:
                 return None
             self.buffer += data
+            while self.strip_telnet_command():
+                pass
         result = self.buffer[0:i+1]
         self.buffer = self.buffer[i+1:]
         return result
@@ -55,6 +53,31 @@ class Connection(object):
         self.__write(b'\xff\xfb\x18')
         # IAC SB terminal-type IS REPLCLIENT IAC SE
         self.__write(b'\xff\xfa\x18\x00REPLCLIENT\xff\xf0')
+
+    def strip_telnet_command(self):
+        k = self.buffer.find('\n')
+        if k < 0:
+            k = None
+        i = self.buffer.find(b'\xff', 0, k)
+        n = len(self.buffer)
+        if i >= 0:
+            if n > i + 1:
+                c = self.buffer[i+1]
+                if c in b'\xf1\xf2x\f3x\f4x\xf5\xf6\xf7\xf8\xf9':
+                    if n > i + 2:
+                        self.buffer = self.buffer[:i] + self.buffer[i+2:]
+                elif c in b'\xfb\xfc\xfd\xfe':
+                    if n > i + 3:
+                        self.buffer = self.buffer[:i] + self.buffer[i+3:]
+                elif c in b'\xfa':
+                    j = self.buffer.find(b'\xff\xf0', i)
+                    if j > 0:
+                        self.buffer = self.buffer[:i] + self.buffer[j+2:]
+                else:
+                    raise ValueError
+            return True
+        else:
+            return False
 
     def getGreeting(self):
         print self.__readline().rstrip()
