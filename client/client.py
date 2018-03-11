@@ -34,6 +34,7 @@ class Connection(object):
             if i >= 0:
                 break
             data = self.__recv()
+            print repr(data)
             if data is None:
                 return None
             self.buffer += data
@@ -51,6 +52,8 @@ class Connection(object):
     def fake_telnet_negotiation(self):
         # IAC WILL terminal-type
         self.__write(b'\xff\xfb\x18')
+        # IAC DO new-environ
+        self.__write(b'\xff\xfd\x27')
         # IAC SB terminal-type IS REPLCLIENT IAC SE
         self.__write(b'\xff\xfa\x18\x00REPLCLIENT\xff\xf0')
 
@@ -113,10 +116,10 @@ class Completer(object):
         return self.__cache[v]
 
     def get_locals(self):
-        return self.connection.exec_sync("echo('\\r\\n'.join(locals().keys()))")
+        return self.connection.exec_sync("echo('\\n'.join(locals().keys()))")
 
     def get_dir(self, code):
-        return self.connection.exec_sync("echo('\\r\\n'.join(dir(%s)))" % code)
+        return self.connection.exec_sync("echo('\\n'.join(dir(%s)))" % code)
 
     def get_path_dir(self, locs, path):
         attrs = locs

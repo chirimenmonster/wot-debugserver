@@ -66,7 +66,7 @@ STATE_REQUEST = 'REQUEST'
 
 acceptOptions = {
     'U':    [ TOKEN_SUPPRESS_GO_AHEAD, TOKEN_LINE_MODE ],
-    'S':    [ TOKEN_LINE_MODE ],
+    'S':    [ TOKEN_LINE_MODE, TOKEN_NEW_ENVIRON ],
 }
 requestOptions = {
     'U':    [ TOKEN_SUPPRESS_GO_AHEAD, TOKEN_TERMINAL_TYPE ],
@@ -89,9 +89,9 @@ class TelnetProtocol(object):
     def shift_data(self):
         if len(self.data) == 0:
             raise ValueError
-        i = self.data.find(TOKEN_IAC)
-        result = self.data[:i-1]
-        self.data = self.data[i-1:]
+        i = self.data.find(CODE_CMD[TOKEN_IAC])
+        result = self.data[:i]
+        self.data = self.data[i:]
         return result
 
     def getState(self, category):
