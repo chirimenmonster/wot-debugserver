@@ -9,6 +9,7 @@ TOKEN_WONT  = 'WONT'
 TOKEN_DO    = 'DO'
 TOKEN_DONT  = 'DONT'
 TOKEN_IAC   = 'IAC'
+
 TOKEN_IS    = 'IS'
 TOKEN_SEND  = 'SEND'
 TOKEN_INFO  = 'INFO'
@@ -22,6 +23,13 @@ TOKEN_FLOW_CONTROL      = 'remote-flow-control'
 TOKEN_LINE_MODE         = 'line-mode'
 TOKEN_ENVIRONMENT       = 'environment'
 TOKEN_NEW_ENVIRON       = 'new-environment'
+
+TOKEN_EXTEND_MSG        = 'extend-msg'
+
+TOKEN_SLC_EOF       = 'EOF'
+TOKEN_SLC_SUSP      = 'SUSP'
+TOKEN_SLC_ABORT     = 'ABORT'
+
 
 CODE_CMD = {
     # Negotiation Protocol
@@ -51,14 +59,24 @@ CODE_OPT = {
     TOKEN_LINE_MODE:            b'\x22',    # 34
     TOKEN_ENVIRONMENT:          b'\x24',    # 36
     TOKEN_NEW_ENVIRON:          b'\x27',    # 39
+    
+    TOKEN_EXTEND_MSG:           b'\xfe',    # extention
+}
+
+CODE_SLC = {
+    TOKEN_SLC_EOF:      b'\xec',    # 236
+    TOKEN_SLC_SUSP:     b'\xed',    # 237
+    TOKEN_SLC_ABORT:    b'\xee',    # 238
 }
 
 CODE = {}
 CODE.update(CODE_CMD)
 CODE.update(CODE_OPT)
+CODE.update(CODE_SLC)
 
 DICT_CMD = { v:k for k,v in CODE_CMD.items() }
 DICT_OPT = { v:k for k,v in CODE_OPT.items() }
+DICT_SLC = { v:k for k,v in CODE_SLC.items() }
 
 STATE_ACCEPT = 'ACCEPT'
 STATE_REJECT = 'REJECT'
@@ -75,9 +93,38 @@ requestOptions = {
 
 class TelnetProtocol(object):
 
-    def __init__(self):
+    def __init__(self, handler=None):
         self.result = []
         self.state = { 'U': {}, 'S': {} }
+        self.extendMsgHandler = handler
+
+    def split(self, data):
+        k = data.find('\n')
+        if k < 0:
+            k = None
+        i = data.find(CODE[TOKEN_IAC], 0, k)
+        n = len(data)
+        codes = result = None
+        if i >= 0 and n > i + 1:
+            c = data[i+1]
+            if ord(c) > ord(CODE[TOKEN_SE]) and ord < ord(CODE[TOKEN_SB]):
+                codes = data[i:i+2]
+                data = data[:i] + data[i+2:]
+            elif c in DICT_SLC:
+                codes = data[i:i+2]
+                data = data[:i] + data[i+2:]
+            elif c in [ CODE[TOKEN_WILL], CODE[TOKEN_WONT], CODE[TOKEN_DO], CODE[TOKEN_DONT] ]:
+                if n > i + 2:
+                    codes = data[i:i+3]
+                    data = data[:i] + data[i+3:]
+            elif c == CODE[TOKEN_SB]:
+                j = data.find(CODE[TOKEN_IAC] + CODE[TOKEN_SE], i)
+                if j > 0:
+                    codes = data[i:j+2]
+                    data = data[:i] + data[j+2:]
+            else:
+                raise ValueError
+        return data, codes
 
     def shift(self):
         if len(self.data) == 0:
@@ -106,7 +153,7 @@ class TelnetProtocol(object):
             raise ValueError
 
     def getCommandString(self, data):
-        info = ' '.join([ token if token in CODE else '\'{}\''.format(token) for token in data ])
+        info = ' '.join([ token if token in CODE else repr(token) for token in data ])
         result = ''.join([ CODE.get(token, token) for token in data ])
         return result, info           
 
@@ -173,6 +220,7 @@ class TelnetProtocol(object):
                 subcmd = msg[3]
                 if subcmd == TOKEN_IS:
                     self.state['U'][opt] = { 'value': msg[4] }
+                    logger.logDebug('TELNET SUB: {} = {}'.format(opt, msg[4]))
 
         self.buffer['SEND'] = []
         if rcvddata is None:
@@ -209,6 +257,12 @@ class TelnetProtocol(object):
             elif state == TOKEN_DONT:
                 self.sate['S'][opt] == STATE_REJECT
                 self.buffer['SEND'].append([ TOKEN_IAC, TOKEN_DONT, opt ])
+
+        req = self.state['U'].get(TOKEN_EXTEND_MSG, None)
+        if req and req['value'] and self.extendMsgHandler is not None:
+            r = self.extendMsgHandler(req['value'])
+            req['value'] = None
+            self.buffer['SEND'].append([ TOKEN_IAC, TOKEN_SB, TOKEN_EXTEND_MSG, TOKEN_IS, r, TOKEN_IAC, TOKEN_SE ])
 
         result = ''
         for cmd in self.buffer['SEND']:

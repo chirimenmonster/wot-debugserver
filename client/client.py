@@ -1,12 +1,12 @@
 #!/usr/bin/python
 
+import sys
 import socket
 
 HOST = '127.0.0.1'
 PORT = 2222
 
 NEWLINE = '\r\n'
-READYMSG = '~~~ok!~~~'
 
 
 class SocketClose(Exception):
@@ -23,25 +23,27 @@ class Connection(object):
         self.fake_telnet_negotiation()
 
     def __recv(self):
-        data = self.socket.recv(1024)
+        data = self.socket.recv(2048)
         if len(data) == 0:
             return None
         return data
 
-    def __readline(self):
-        while True:
-            i = self.buffer.find('\n')
-            if i >= 0:
-                break
+    def __read(self):
+        goahead = None
+        while goahead is None:
             data = self.__recv()
-            print repr(data)
             if data is None:
                 return None
             self.buffer += data
-            while self.strip_telnet_command():
-                pass
-        result = self.buffer[0:i+1]
-        self.buffer = self.buffer[i+1:]
+            while True:
+                result = self.__pop_telnet_command()
+                if result == b'\xff\xf9':
+                    goahead = result
+                    break
+                if result is None:
+                    break
+        result = self.buffer
+        self.buffer = ''
         return result
 
     def __write(self, data):
@@ -57,49 +59,54 @@ class Connection(object):
         # IAC SB terminal-type IS REPLCLIENT IAC SE
         self.__write(b'\xff\xfa\x18\x00REPLCLIENT\xff\xf0')
 
-    def strip_telnet_command(self):
-        k = self.buffer.find('\n')
-        if k < 0:
-            k = None
-        i = self.buffer.find(b'\xff', 0, k)
+    def __pop_telnet_command(self, end=None):
         n = len(self.buffer)
-        if i >= 0:
-            if n > i + 1:
-                c = self.buffer[i+1]
-                if c in b'\xf1\xf2x\f3x\f4x\xf5\xf6\xf7\xf8\xf9':
-                    if n > i + 2:
-                        self.buffer = self.buffer[:i] + self.buffer[i+2:]
-                elif c in b'\xfb\xfc\xfd\xfe':
-                    if n > i + 3:
-                        self.buffer = self.buffer[:i] + self.buffer[i+3:]
-                elif c in b'\xfa':
-                    j = self.buffer.find(b'\xff\xf0', i)
-                    if j > 0:
-                        self.buffer = self.buffer[:i] + self.buffer[j+2:]
-                else:
-                    raise ValueError
-            return True
-        else:
-            return False
-
-    def getGreeting(self):
-        print self.__readline().rstrip()
-
-    def exec_sync(self, cmd):
-        self.__write(cmd + NEWLINE)
-        result = []
-        while True:
-            line = self.__readline().rstrip()
-            if line == READYMSG:
+        i = self.buffer.find(b'\xff', 0, end)
+        if i < 0:
+            return None
+        if n < i + 2:
+            return None
+        c = self.buffer[i+1]
+        if c in b'\xf1\xf2x\f3x\f4x\xf5\xf6\xf7\xf8\xf9':
+            result = self.buffer[i:i+2]
+            self.buffer = self.buffer[:i] + self.buffer[i+2:]
+            return result
+        elif c in b'\xfb\xfc\xfd\xfe':
+            if n > i + 2:
+                result = self.buffer[i:i+3]
+                self.buffer = self.buffer[:i] + self.buffer[i+3:]
                 return result
-            result.append(line)
+        elif c in b'\xfa':
+            j = self.buffer.find(b'\xff\xf0', i)
+            if j > 0:
+                result = self.buffer[i:j+2]
+                self.buffer = self.buffer[:i] + self.buffer[j+2:]
+                return result
+        else:
+            raise ValueError
+        return None   
+
+    def exec_send_extendmsg(self, cmd):
+        self.__write(b'\xff\xfa\xfe\x00' + cmd + b'\xff\xf0')
+        while True:
+            data = self.__recv()
+            if data is None:
+                return None
+            self.buffer += data
+            while True:
+                result = self.__pop_telnet_command()
+                if result is None:
+                    break
+                if result.startswith(b'\xff\xfa\xfe\x00'):
+                    return result[4:-2].split('\n')
         raise SocketClose()
 
     def exec_sync_print(self, cmd):
-        result = self.exec_sync(cmd)
-        for line in result:
-            print line
+        self.__write(cmd + NEWLINE)
+        sys.stdout.write(self.__read())
 
+    def getGreeting(self):
+        sys.stdout.write(self.__read())
 
 class Completer(object):
 
@@ -116,10 +123,10 @@ class Completer(object):
         return self.__cache[v]
 
     def get_locals(self):
-        return self.connection.exec_sync("echo('\\n'.join(locals().keys()))")
+        return self.connection.exec_send_extendmsg("'\\n'.join(locals().keys())")
 
     def get_dir(self, code):
-        return self.connection.exec_sync("echo('\\n'.join(dir(%s)))" % code)
+        return self.connection.exec_send_extendmsg("'\\n'.join(dir(%s))" % code)
 
     def get_path_dir(self, locs, path):
         attrs = locs
@@ -164,7 +171,6 @@ def main():
 
     try:
         connection.getGreeting()
-        connection.exec_sync_print('__READYMSG = "%s"' % READYMSG)
 
         while True:
             try:
