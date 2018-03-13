@@ -1,7 +1,9 @@
 import os
+import sys
 import errno
 import socket
 import SocketServer
+import io
 
 import wotdbg
 import telnetproto
@@ -78,14 +80,23 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             return None
         logger.logDebug('REPL({}): {}'.format(len(data), repr(data)))
         try:
+            buffer = io.BytesIO()
+            #sys.stdin = buffer
+            sys.stdout = buffer
             try:
                 result = str(eval(data, self.local_vars))
             except SyntaxError:
                 exec data in self.local_vars
-                result = None
+                result = ''
         except Exception:
             import traceback
             result = traceback.format_exc()
+        finally:
+            sys.stdin = sys.__stdin__
+            sys.stdout = sys.__stdout__
+            result += buffer.getvalue()
+            if len(result) == 0:
+                result = None
         if result is not None:
             logger.logDebug('REPL({}): {}'.format(len(result), repr(result)))
         return result
@@ -137,4 +148,5 @@ if __name__ == '__main__':
     logger.DEBUG = True
     MOD_ID = 'tcpreply'
     MOD_VERSION = 'test version'
+
     runReplServer()
