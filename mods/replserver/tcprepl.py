@@ -80,9 +80,8 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             return None
         logger.logDebug('REPL({}): {}'.format(len(data), repr(data)))
         try:
-            buffer = io.BytesIO()
-            #sys.stdin = buffer
-            sys.stdout = buffer
+            sys.stdout = io.BytesIO()
+            sys.stdin = open(os.devnull, 'r')
             try:
                 result = str(eval(data, self.local_vars))
             except SyntaxError:
