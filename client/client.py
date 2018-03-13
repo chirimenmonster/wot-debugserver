@@ -1,5 +1,7 @@
 #!/usr/bin/python
 
+import os
+import errno
 import sys
 import socket
 
@@ -8,105 +10,119 @@ PORT = 2222
 
 NEWLINE = '\r\n'
 
+TELNET_IS       = b'\x00'
 
-class SocketClose(Exception):
-    pass
+TELNET_SE       = b'\xf0'
+TELNET_GOA      = b'\xf9'
+TELNET_SB       = b'\xfa'
+TELNET_WILL     = b'\xfb'
+TELNET_WONT     = b'\xfc'
+TELNET_DO       = b'\xfd'
+TELNET_DONT     = b'\xfe'
+TELNET_IAC      = b'\xff'
 
+TELOPT_TERMINAL_TYPE    = b'\x18'
+TELOPT_EXTEND           = b'\xfe'
+
+TELMSG_GOAHEAD  = TELNET_IAC + TELNET_GOA
+TELMSG_TERM_BEGIN   = TELNET_IAC + TELNET_SB + TELOPT_TERMINAL_TYPE + TELNET_IS
+TELMSG_TERM_END     = TELNET_IAC + TELNET_SE
+TELMSG_EXTEND_BEGIN = TELNET_IAC + TELNET_SB + TELOPT_EXTEND + TELNET_IS
+TELMSG_EXTEND_END   = TELNET_IAC + TELNET_SE
+
+TELNET_CMDLIST_NOARG    = b'\xf1\xf2x\f3x\f4x\xf5\xf6\xf7\xf8\xf9'
+TELNET_CMDLIST_ARG      = b'\xfb\xfc\xfd\xfe'
 
 class Connection(object):
 
     def __init__(self, host, port):
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect((host, port))
-        self.socket = s
-        self.buffer = ''
-        self.fake_telnet_negotiation()
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect((host, port))
+        self.__buffer = ''
 
     def __recv(self):
         data = self.socket.recv(2048)
         if len(data) == 0:
-            return None
+            raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
+        self.__buffer += data
         return data
 
+    def __pop_buffer(self):
+        result = self.__buffer
+        self.__buffer = ''
+        return result
+
+    def __pop_telnet_command(self, end=None):
+        n = len(self.__buffer)
+        i = self.__buffer.find(TELNET_IAC, 0, end)
+        if i < 0:
+            return None
+        if n < i + 2:
+            return None
+        c = self.__buffer[i+1]
+        if c in TELNET_CMDLIST_NOARG:
+            result = self.__buffer[i:i+2]
+            self.__buffer = self.__buffer[:i] + self.__buffer[i+2:]
+            return result
+        elif c in TELNET_CMDLIST_ARG:
+            if n > i + 2:
+                result = self.__buffer[i:i+3]
+                self.__buffer = self.__buffer[:i] + self.__buffer[i+3:]
+                return result
+        elif c in TELNET_SB:
+            j = self.__buffer.find(TELNET_IAC + TELNET_SE, i)
+            if j > 0:
+                result = self.__buffer[i:j+2]
+                self.__buffer = self.__buffer[:i] + self.__buffer[j+2:]
+                return result
+        else:
+            raise ValueError
+        return None   
+
     def __read(self):
-        goahead = None
-        while goahead is None:
-            data = self.__recv()
-            if data is None:
-                return None
-            self.buffer += data
+        while True:
             while True:
                 result = self.__pop_telnet_command()
-                if result == b'\xff\xf9':
-                    goahead = result
-                    break
                 if result is None:
                     break
-        result = self.buffer
-        self.buffer = ''
-        return result
+                elif result == TELMSG_GOAHEAD:   # GO AHEAD
+                    return self.__pop_buffer()
+                elif result.startswith(TELMSG_EXTEND_BEGIN):
+                    self.__extendmsg = result[4:-2]
+                    return ''
+            self.__recv()
 
     def __write(self, data):
         if len(data) == 0:
             return
         self.socket.sendall(data)
 
-    def fake_telnet_negotiation(self):
+    def __fake_telnet_negotiation(self):
         # IAC WILL terminal-type
-        self.__write(b'\xff\xfb\x18')
-        # IAC DO new-environ
-        self.__write(b'\xff\xfd\x27')
+        self.__write(TELNET_IAC + TELNET_WILL + TELOPT_TERMINAL_TYPE)
         # IAC SB terminal-type IS REPLCLIENT IAC SE
-        self.__write(b'\xff\xfa\x18\x00REPLCLIENT\xff\xf0')
+        self.__write(TELMSG_TERM_BEGIN + 'REPLCLIENT' + TELMSG_TERM_END)
 
-    def __pop_telnet_command(self, end=None):
-        n = len(self.buffer)
-        i = self.buffer.find(b'\xff', 0, end)
-        if i < 0:
-            return None
-        if n < i + 2:
-            return None
-        c = self.buffer[i+1]
-        if c in b'\xf1\xf2x\f3x\f4x\xf5\xf6\xf7\xf8\xf9':
-            result = self.buffer[i:i+2]
-            self.buffer = self.buffer[:i] + self.buffer[i+2:]
-            return result
-        elif c in b'\xfb\xfc\xfd\xfe':
-            if n > i + 2:
-                result = self.buffer[i:i+3]
-                self.buffer = self.buffer[:i] + self.buffer[i+3:]
-                return result
-        elif c in b'\xfa':
-            j = self.buffer.find(b'\xff\xf0', i)
-            if j > 0:
-                result = self.buffer[i:j+2]
-                self.buffer = self.buffer[:i] + self.buffer[j+2:]
-                return result
-        else:
+    def startup(self):
+        self.__fake_telnet_negotiation()
+        return self.__read()
+
+    def shutdown(self, how):
+        return self.socket.shutdown(how)
+
+    def send_extendmsg(self, cmd):
+        self.__write(TELMSG_EXTEND_BEGIN + cmd + TELMSG_EXTEND_END)
+        result = self.__read()
+        if result != '':
             raise ValueError
-        return None   
+        extendmsg = self.__extendmsg.split('\n')
+        self.__extendmsg = None
+        return extendmsg
 
-    def exec_send_extendmsg(self, cmd):
-        self.__write(b'\xff\xfa\xfe\x00' + cmd + b'\xff\xf0')
-        while True:
-            data = self.__recv()
-            if data is None:
-                return None
-            self.buffer += data
-            while True:
-                result = self.__pop_telnet_command()
-                if result is None:
-                    break
-                if result.startswith(b'\xff\xfa\xfe\x00'):
-                    return result[4:-2].split('\n')
-        raise SocketClose()
-
-    def exec_sync_print(self, cmd):
+    def send_command(self, cmd):
         self.__write(cmd + NEWLINE)
-        sys.stdout.write(self.__read())
+        return self.__read()
 
-    def getGreeting(self):
-        sys.stdout.write(self.__read())
 
 class Completer(object):
 
@@ -123,10 +139,10 @@ class Completer(object):
         return self.__cache[v]
 
     def get_locals(self):
-        return self.connection.exec_send_extendmsg("'\\n'.join(locals().keys())")
+        return self.connection.send_extendmsg("'\\n'.join(locals().keys())")
 
     def get_dir(self, code):
-        return self.connection.exec_send_extendmsg("'\\n'.join(dir(%s))" % code)
+        return self.connection.send_extendmsg("'\\n'.join(dir(%s))" % code)
 
     def get_path_dir(self, locs, path):
         attrs = locs
@@ -170,20 +186,18 @@ def main():
         pass
 
     try:
-        connection.getGreeting()
-
+        sys.stdout.write(connection.startup())
         while True:
-            try:
-                completer.clear_cache()
-                cmd = raw_input('> ')
-                connection.exec_sync_print(cmd.strip())
-            except EOFError:
-                break
-
-    except SocketClose:
-        pass
-    print 'connection closed'
-
+            completer.clear_cache()
+            cmd = raw_input('> ')
+            cmd = cmd.strip()
+            sys.stdout.write(connection.send_command(cmd))
+    except EOFError:
+        sys.stdout.write(NEWLINE + 'connection closing...' + NEWLINE)
+        connection.shutdown(socket.SHUT_RDWR)
+    except socket.error as err:
+        sys.stdout.write(err.args[1] + NEWLINE)
+        return
 
 if __name__ == "__main__":
     main()
