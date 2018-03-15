@@ -83,20 +83,23 @@ STATE_REJECT = 'REJECT'
 STATE_REQUEST = 'REQUEST'
 
 acceptOptions = {
-    'U':    [ TOKEN_SUPPRESS_GO_AHEAD, TOKEN_LINE_MODE ],
+    'U':    [ TOKEN_SUPPRESS_GO_AHEAD, TOKEN_LINE_MODE, TOKEN_EXTEND_MSG ],
     'S':    [ TOKEN_LINE_MODE, TOKEN_NEW_ENVIRON ],
 }
 requestOptions = {
-    'U':    [ TOKEN_SUPPRESS_GO_AHEAD, TOKEN_TERMINAL_TYPE ],
+    'U':    [ TOKEN_SUPPRESS_GO_AHEAD, TOKEN_TERMINAL_TYPE, TOKEN_EXTEND_MSG ],
+    'S':    [],
+}
+requestOptionsSubstate = {
+    'U':    [ TOKEN_TERMINAL_TYPE ],
     'S':    [],
 }
 
 class TelnetProtocol(object):
 
     def __init__(self, handler=None):
-        self.result = []
-        self.state = { 'U': {}, 'S': {} }
-        self.extendMsgHandler = handler
+        self.__state = { 'U': {}, 'S': {} }
+        self.__extendMsgHandler = handler
 
     def split(self, data):
         k = data.find('\n')
@@ -126,14 +129,14 @@ class TelnetProtocol(object):
                 raise ValueError
         return data, codes
 
-    def shift(self):
+    def __shift(self):
         if len(self.data) == 0:
             raise ValueError
         c = self.data[0]
         self.data = self.data[1:]
         return c
 
-    def shift_data(self):
+    def __shift_data(self):
         if len(self.data) == 0:
             raise ValueError
         i = self.data.find(CODE_CMD[TOKEN_IAC])
@@ -141,9 +144,14 @@ class TelnetProtocol(object):
         self.data = self.data[i:]
         return result
 
+    def goahead(self):
+        if self.__state['U'].get(TOKEN_SUPPRESS_GO_AHEAD, None) == STATE_ACCEPT:
+            return None
+        return CODE[TOKEN_IAC] + CODE[TOKEN_GA]
+
     def getState(self, category):
         if category == 'TERM':
-            state = self.state['U'][TOKEN_TERMINAL_TYPE]
+            state = self.__state['U'][TOKEN_TERMINAL_TYPE]
             if state == STATE_REJECT:
                 return ''
             elif isinstance(state, dict):
@@ -157,133 +165,147 @@ class TelnetProtocol(object):
         result = ''.join([ CODE.get(token, token) for token in data ])
         return result, info           
 
-    def parse(self, data):
+    def __parse(self, data):
         self.data = data
         self.recv = []
         while len(self.data) > 0:
-            c = self.shift()
+            c = self.__shift()
             if c != CODE[TOKEN_IAC]:
                 raise ValueError
-            self.command()
+            self.__command()
         return self.recv
 
-    def command(self):
-        c = self.shift()
+    def __command(self):
+        c = self.__shift()
         if c in DICT_CMD:
-            d = self.shift()
+            d = self.__shift()
             cmd = DICT_CMD[c]
             opt = DICT_OPT.get(d, '\\x' + binascii.b2a_hex(d))
             if cmd == TOKEN_SB:
-                s = self.shift()
+                s = self.__shift()
                 subcmd = DICT_CMD.get(s, '\\x' + binascii.b2a_hex(s))
                 if subcmd == TOKEN_IS:
-                    arg = self.shift_data()
-                    lastIac = DICT_CMD[self.shift()]
-                    lastCmd = DICT_CMD[self.shift()]
+                    arg = self.__shift_data()
+                    lastIac = DICT_CMD[self.__shift()]
+                    lastCmd = DICT_CMD[self.__shift()]
                     self.recv.append([ TOKEN_IAC, cmd, opt, subcmd, arg, lastIac, lastCmd ])
             else:
                 self.recv.append([ TOKEN_IAC, cmd, opt ])
         else:
             raise ValueError
 
-    def negotiation(self, rcvddata):
-        request = []
-
+    def control(self, rcvddata):
         if rcvddata:
-            for msg in self.parse(rcvddata):
-                self.__acceptReceivedMessage(msg)
+            msgs = self.__parse(rcvddata)
         else:
-            request.extend(self.__pushRequestMessage())
-            
-        request.extend(self.__pushRequireTermMessage())
-        request.extend(self.__pushReplyMessage())
-        request.extend(self.__processExtendMessage())
+            msgs = []
+        for msg in msgs:
+            data, info = self.getCommandString(msg)
+            logger.logDebug('TELNET RCVD: {}'.format(info))
+
+        msgs += [ [ None, None, opt ] for opt in requestOptions['U'] ]
+        request = []
+        for msg in msgs:
+            cmd, opt = msg[1], msg[2]
+            request.append(self.__getRequestRemoteState(cmd, opt))
+            request.append(self.__getRequestLocalState(cmd, opt))
+            request.append(self.__getRequestRemoteSubstate(msg))
+        logger.logDebug('STATE: {}'.format(self.__state))
+
+        request.append(self.__getRequestExtendMessage())        
 
         result = ''
-        for cmd in request:
-            data, info = self.getCommandString(cmd)
+        for msg in request:
+            if msg is None:
+                continue
+            data, info = self.getCommandString(msg)
             result += data
             logger.logDebug('TELNET SENT: {}, {}'.format(info, repr(data)))
         return result
 
-    def __acceptReceivedMessage(self, msg):
-        data, info = self.getCommandString(msg)
-        logger.logDebug('TELNET RCVD: {}'.format(info))
-        cmd, opt = msg[1], msg[2]
-        if cmd == TOKEN_WILL:
-            if opt not in self.state['U']:
-                self.state['U'][opt] = TOKEN_WILL
-            elif self.state['U'][opt] == TOKEN_DO:
-                self.state['U'][opt] = STATE_ACCEPT
-        elif cmd == TOKEN_DO:
-            if opt not in self.state['S']:
-                self.state['S'][opt] = TOKEN_DO
-            elif self.state['S'][opt] == TOKEN_WILL:
-                self.state['S'][opt] = STATE_ACCEPT
-        elif cmd == TOKEN_WONT:
-            if self.state['S'][opt] == TOKEN_WONT:
-                self.state['S'][opt] = STATE_REJECT
-            elif self.state['U'][opt] == TOKEN_DO:
-                self.state['U'][opt] = TOKEN_WONT
-        elif cmd == TOKEN_DONT:
-            if self.state['U'][opt] == TOKEN_DONT:
-                self.state['U'][opt] = STATE_REJECT
-            elif self.state['S'][opt] == TOKEN_WILL:
-                self.state['S'][opt] = TOKEN_DONT
-        elif cmd == TOKEN_SB:
-            subcmd = msg[3]
-            if subcmd == TOKEN_IS:
-                self.state['U'][opt] = { 'value': msg[4] }
-                logger.logDebug('TELNET SUB: {} = {}'.format(opt, msg[4]))
 
-    def __pushRequestMessage(self):
-        request = []
-        for opt in requestOptions['U']:
-            self.state['U'][opt] = TOKEN_DO
-            request.append([ TOKEN_IAC, TOKEN_DO, opt ])
-        for opt in requestOptions['S']:
-            self.state['S'][opt] = TOKEN_WILL
-            request.append([ TOKEN_IAC, TOKEN_WILL, opt ])
-        return request
-    
-    def __pushReplyMessage(self):
-        request = []
-        for opt, state in self.state['U'].items():
-            if state == TOKEN_WILL:
+    def __getRequestRemoteState(self, cmd, opt):
+        result = None
+        state = self.__state['U'].get(opt, None)
+        if state is None:
+            if cmd is None:
+                if opt in requestOptions['U']:
+                    state = TOKEN_DO
+                    result = [ TOKEN_IAC, TOKEN_DO, opt ]
+            elif cmd == TOKEN_WILL:
                 if opt in acceptOptions['U']:
-                    self.state['U'][opt] = STATE_ACCEPT
-                    request.append([ TOKEN_IAC, TOKEN_DO, opt ])
+                    state = TOKEN_DO
+                    result = [ TOKEN_IAC, TOKEN_DO, opt ]
                 else:
-                    self.state['U'][opt] = TOKEN_DONT
-                    request.append([ TOKEN_IAC, TOKEN_DONT, opt ])
-            elif state == TOKEN_WONT:
-                self.sate['U'][opt] == STATE_REJECT
-                request.append([ TOKEN_IAC, TOKEN_WONT, opt ])
-        for opt, state in self.state['S'].items():
-            if state == TOKEN_DO:
+                    state = TOKEN_DONT
+                    result = [ TOKEN_IAC, TOKEN_DONT, opt ]
+        elif state == TOKEN_DO:
+            if cmd == TOKEN_WILL:
+                state = STATE_ACCEPT
+            elif cmd == TOKEN_WONT:
+                state = STATE_REJECT
+                result = [ TOKEN_IAC, TOKEN_WONT, opt ]
+        elif state == TOKEN_DONT:
+            if cmd == TOKEN_DONT:
+                state = STATE_REJECT
+        self.__state['U'][opt] = state
+        return result
+
+    def __getRequestLocalState(self, cmd, opt):
+        result = None
+        state = self.__state['S'].get(opt, None)
+        if state is None:
+            if cmd is None:
+                if opt in requestOptions['S']:
+                    state = TOKEN_WILL
+                    result = [ TOKEN_IAC, TOKEN_WILL, opt ]
+            elif cmd == TOKEN_DO:
                 if opt in acceptOptions['S']:
-                    self.state['S'][opt] = STATE_ACCEPT
-                    request.append([ TOKEN_IAC, TOKEN_WILL, opt ])
+                    state = TOKEN_WILL
+                    result = [ TOKEN_IAC, TOKEN_WILL, opt ]
                 else:
-                    self.state['S'][opt] = TOKEN_WONT
-                    request.append([ TOKEN_IAC, TOKEN_WONT, opt ])
-            elif state == TOKEN_DONT:
-                self.sate['S'][opt] == STATE_REJECT
-                request.append([ TOKEN_IAC, TOKEN_DONT, opt ])
-        return request
+                    state = TOKEN_WONT
+                    result = [ TOKEN_IAC, TOKEN_WONT, opt ]
+        elif state == TOKEN_WILL:
+            if cmd == TOKEN_DO:
+                state = STATE_ACCEPT
+            elif cmd == TOKEN_DONT:
+                state = TOKEN_REJECT
+                result = [ TOKEN_IAC, TOKEN_DONT, opt ]
+        elif state == TOKEN_WONT:
+            if cmd == TOKEN_WONT:
+                state = STATE_REJECT
+        self.__state['S'][opt] = state
+        return result
 
-    def __pushRequireTermMessage(self):
-        request = []
-        if self.state['U'][TOKEN_TERMINAL_TYPE] == STATE_ACCEPT:
-            self.state['U'][TOKEN_TERMINAL_TYPE] = STATE_REQUEST
-            request.append([ TOKEN_IAC, TOKEN_SB, TOKEN_TERMINAL_TYPE, TOKEN_SEND, TOKEN_IAC, TOKEN_SE ])
-        return request
+    def __getRequestRemoteSubstate(self, msg):
+        result = None
+        cmd, opt = msg[1], msg[2]
+        state = self.__state['U'].get(opt, None)
+        if state == STATE_ACCEPT:
+            if opt in requestOptionsSubstate['U']:
+                state = STATE_REQUEST
+                result = [ TOKEN_IAC, TOKEN_SB, opt, TOKEN_SEND, TOKEN_IAC, TOKEN_SE ]
+        elif state == STATE_REQUEST:
+            if cmd == TOKEN_SB:
+                subcmd = msg[3]
+                if subcmd == TOKEN_IS:
+                    value = msg[4]
+                    state = { 'value': value }
+                    logger.logDebug('TELNET SUB: {} = {}'.format(opt, value))
+        self.__state['U'][opt] = state
+        return result
 
-    def __processExtendMessage(self):
-        request = []
-        query = self.state['U'].get(TOKEN_EXTEND_MSG, None)
-        if query and query['value'] and self.extendMsgHandler is not None:
-            result = self.extendMsgHandler(query['value'])
-            request.append([ TOKEN_IAC, TOKEN_SB, TOKEN_EXTEND_MSG, TOKEN_IS, result, TOKEN_IAC, TOKEN_SE ])
-            query['value'] = None
-        return request
+    def __getRequestExtendMessage(self):
+        if self.__extendMsgHandler is None:
+            return None
+        result = None
+        opt = TOKEN_EXTEND_MSG
+        state = self.__state['U'].get(opt, None)
+        if isinstance(state, dict) and 'value' in state:
+            result = self.__extendMsgHandler(state['value'])
+            result = [ TOKEN_IAC, TOKEN_SB, TOKEN_EXTEND_MSG, TOKEN_IS, result, TOKEN_IAC, TOKEN_SE ]
+        state = STATE_REQUEST
+        self.__state['U'][opt] = state
+        return result
+

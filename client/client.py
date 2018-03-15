@@ -98,9 +98,8 @@ class Connection(object):
         self.socket.sendall(data)
 
     def __fake_telnet_negotiation(self):
-        # IAC WILL terminal-type
         self.__write(TELNET_IAC + TELNET_WILL + TELOPT_TERMINAL_TYPE)
-        # IAC SB terminal-type IS REPLCLIENT IAC SE
+        self.__write(TELNET_IAC + TELNET_WILL + TELOPT_EXTEND)
         self.__write(TELMSG_TERM_BEGIN + 'REPLCLIENT' + TELMSG_TERM_END)
 
     def startup(self):

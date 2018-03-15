@@ -56,7 +56,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             elif codes[1] == telnetproto.CODE['EOF']:     # TELNET linemode EOF
                 raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
             else:
-                self.__write(self.telnet.negotiation(codes))
+                self.__write(self.telnet.control(codes))
 
     def __readline(self):
         while True:
@@ -80,7 +80,8 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             return None
         logger.logDebug('REPL({}): {}'.format(len(data), repr(data)))
         try:
-            sys.stdout = io.BytesIO()
+            buffer = io.BytesIO()
+            sys.stdout = buffer
             sys.stdin = open(os.devnull, 'r')
             try:
                 result = str(eval(data, self.local_vars))
@@ -103,7 +104,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
     def __negotiation(self):
         try:
             self.request.settimeout(1)
-            self.__write(self.telnet.negotiation(None))
+            self.__write(self.telnet.control(None))
             while True:
                 self.__process_telnet_command()
                 self.__recv()
@@ -116,11 +117,12 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         termtype = self.telnet.getState('TERM')
         self.__echo(self.greeting + ', TERM={}'.format(termtype))
         if termtype == 'REPLCLIENT':
-            self.prompt = TELNET_GOAHEAD
+            self.prompt = None
         else:
             self.prompt = TELNET_PROMPT
         while True:
             self.__write(self.prompt)
+            self.__write(self.telnet.goahead())
             line = self.__readline().strip()
             if line == 'QUIT':
                 raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
