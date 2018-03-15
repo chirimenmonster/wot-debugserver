@@ -94,9 +94,16 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         finally:
             sys.stdin = sys.__stdin__
             sys.stdout = sys.__stdout__
-            result += buffer.getvalue()
+            logger.logDebug('REPL({}): {}'.format(len(result), repr(result)))
+            logger.logDebug('REPL({}): {}'.format(len(buffer.getvalue()), repr(buffer.getvalue())))
             if len(result) == 0:
-                result = None
+                if len(buffer.getvalue()) == 0:
+                    result = None
+                else:
+                    result = buffer.getvalue()
+            else:
+                if len(buffer.getvalue()) > 0:
+                    result += '\n' + buffer.getvalue()
         if result is not None:
             logger.logDebug('REPL({}): {}'.format(len(result), repr(result)))
         return result
