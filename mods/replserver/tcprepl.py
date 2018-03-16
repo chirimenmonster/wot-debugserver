@@ -7,6 +7,7 @@ import io
 
 import wotdbg
 import telnetproto
+from telnetproto import TOKEN
 from logger import logger
 
 HOST = '127.0.0.1'
@@ -26,7 +27,10 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         logger.logInfo('REPL connection start')
         wotdbg.echo = self.__echo
         self.local_vars = { 'echo': self.__echo, 'wotdbg': wotdbg }
-        self.telnet = telnetproto.TelnetProtocol(self.__repl)
+        self.telnet = telnetproto.TelnetProtocol({
+            TOKEN.TERMINAL_TYPE:    self.__telnetHandlerTerm,
+            TOKEN.EXTEND_MSG:       self.__telnetHandlerExtend
+        })
         self.__buffer = ''
         self.greeting = 'welcome to WoT REPL interface, {}, {}'.format(MOD_ID, MOD_VERSION)
 
@@ -75,6 +79,18 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         logger.logDebug('SEND({}): {}'.format(len(data), repr(data)))
         self.request.sendall(data)
 
+    def __telnetHandlerTerm(self, value):
+        logger.logDebug('HANDLER: set TERM={}'.format(value))
+        self.__termtype = value
+        return None
+        
+    def __telnetHandlerExtend(self, value):
+        logger.logDebug('HANDLER: exec msg={}'.format(repr(value)))
+        data = self.__repl(value)
+        result = self.telnet.getRequestExtendMsg(data)
+        self.telnet.setRequireOption(TOKEN.EXTEND_MSG)
+        return result
+
     def __repl(self, data):
         if data is None or len(data) == 0:
             return None
@@ -121,9 +137,8 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             self.request.settimeout(None)
 
     def __mainloop(self):
-        termtype = self.telnet.getState('TERM')
-        self.__echo(self.greeting + ', TERM={}'.format(termtype))
-        if termtype == 'REPLCLIENT':
+        self.__echo(self.greeting + ', TERM={}'.format(self.__termtype))
+        if self.__termtype == 'REPLCLIENT':
             self.prompt = None
         else:
             self.prompt = TELNET_PROMPT
