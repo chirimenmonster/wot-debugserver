@@ -35,9 +35,11 @@ class TOKEN:
 
     EXTEND_MSG          = 'extend-msg'
 
-    SLC_EOF             = 'EOF'
-    SLC_SUSP            = 'SUSP'
-    SLC_ABORT           = 'ABORT'
+    EOF                 = 'EOF'
+    SUSP                = 'SUSP'
+    ABORT               = 'ABORT'
+    EOR                 = 'EOR'
+
 
 CODE_CMD_SIMPLE = {
     TOKEN.NOP:  b'\xf1',    # 241
@@ -83,9 +85,10 @@ CODE_OPT = {
 }
 
 CODE_SLC = {
-    TOKEN.SLC_EOF:      b'\xec',    # 236
-    TOKEN.SLC_SUSP:     b'\xed',    # 237
-    TOKEN.SLC_ABORT:    b'\xee',    # 238
+    TOKEN.EOF:      b'\xec',    # 236
+    TOKEN.SUSP:     b'\xed',    # 237
+    TOKEN.ABORT:    b'\xee',    # 238
+    TOKEN.EOR:      b'\xef',    # 239
 }
 
 CODE = {}
@@ -148,7 +151,7 @@ class TelnetProtocol(object):
         codes = result = None
         if i >= 0 and n > i + 1:
             c = data[i+1]
-            if ord(c) > ord(CODE[TOKEN.SE]) and ord(c) < ord(CODE[TOKEN.SB]):
+            if c in DICT_CMD_SIMPLE:
                 codes = data[i:i+2]
                 data = data[:i] + data[i+2:]
             elif c in DICT_SLC:
@@ -195,7 +198,8 @@ class TelnetProtocol(object):
     def __command(self):
         c = self.__shift()
         if c in DICT_CMD_SIMPLE:
-            pass
+            cmd = DICT_CMD_SIMPLE[c]
+            self.recv.append([ TOKEN.IAC, cmd ])
         elif c in DICT_CMD_NEGOTIATION:
             d = self.__shift()
             cmd = DICT_CMD_NEGOTIATION[c]
@@ -210,8 +214,19 @@ class TelnetProtocol(object):
                     self.recv.append([ TOKEN.IAC, cmd, opt, subcmd, arg, lastIac, lastCmd ])
             else:
                 self.recv.append([ TOKEN.IAC, cmd, opt ])
+        elif c in DICT_SLC:
+            cmd = DICT_SLC[c]
+            self.recv.append([ TOKEN.IAC, cmd ])
         else:
             raise ValueError
+    
+    def __getCommand(self, msg):
+        cmd = msg[1]
+        if len(msg) > 2:
+            opt = msg[2]
+        else:
+            opt = None
+        return cmd, opt
 
     def control(self, rcvddata):
         if rcvddata:
@@ -225,7 +240,7 @@ class TelnetProtocol(object):
         msgs += [ [ None, None, opt ] for opt in requestOptions['U'] ]
         request = []
         for msg in msgs:
-            cmd, opt = msg[1], msg[2]
+            cmd, opt = self.__getCommand(msg)
             request.append(self.__getRequestRemoteState(cmd, opt))
             request.append(self.__getRequestLocalState(cmd, opt))
             request.append(self.__getRequestRemoteSubstate(msg))
@@ -297,7 +312,7 @@ class TelnetProtocol(object):
 
     def __getRequestRemoteSubstate(self, msg):
         result = None
-        cmd, opt = msg[1], msg[2]
+        cmd, opt = self.__getCommand(msg)
         state = self.__state['U'].get(opt, None)
         if state == STATE.ACCEPT:
             if opt in requestOptionsSubstate['U']:

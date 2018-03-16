@@ -11,6 +11,7 @@ from telnetproto import TOKEN
 from logger import logger
 
 HOST = '127.0.0.1'
+HOST = ''
 PORT = 2222
 
 NEWLINE = '\r\n'
@@ -25,6 +26,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
     def setup(self):
         super(ReplRequestHandler, self).setup()
         logger.logInfo('REPL connection start')
+        self.request.setsockopt(socket.SOL_SOCKET, socket.SO_OOBINLINE, 1)
         wotdbg.echo = self.__echo
         self.local_vars = { 'echo': self.__echo, 'wotdbg': wotdbg }
         self.telnet = telnetproto.TelnetProtocol({
@@ -32,6 +34,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             TOKEN.EXTEND_MSG:       self.__telnetHandlerExtend
         })
         self.__buffer = ''
+        self.__termtype = None
         self.greeting = 'welcome to WoT REPL interface, {}, {}'.format(MOD_ID, MOD_VERSION)
 
     def finish(self):
