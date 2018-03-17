@@ -26,16 +26,21 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
     def setup(self):
         super(ReplRequestHandler, self).setup()
         logger.logInfo('REPL connection start')
-        self.request.setsockopt(socket.SOL_SOCKET, socket.SO_OOBINLINE, 1)
-        wotdbg.echo = self.__echo
-        self.local_vars = { 'echo': self.__echo, 'wotdbg': wotdbg }
-        self.telnet = telnetproto.TelnetProtocol({
-            TOKEN.TERMINAL_TYPE:    self.__telnetHandlerTerm,
-            TOKEN.EXTEND_MSG:       self.__telnetHandlerExtend
-        })
         self.__buffer = ''
         self.__termtype = None
         self.greeting = 'welcome to WoT REPL interface, {}, {}'.format(MOD_ID, MOD_VERSION)
+        wotdbg.echo = self.__echo
+        self.local_vars = { 'echo': self.__echo, 'wotdbg': wotdbg }
+        commandHandlers = {
+            TOKEN.EOF:      self.__connectionClose,
+            TOKEN.ABORT:    self.__connectionClose,
+        }
+        optionHandlers = {
+            TOKEN.TERMINAL_TYPE:    self.__telnetHandlerTerm,
+            TOKEN.EXTEND_MSG:       self.__telnetHandlerExtend
+        }
+        self.telnet = telnetproto.TelnetProtocol(commandHandlers=commandHandlers, optionHandlers=optionHandlers)
+        self.request.setsockopt(socket.SOL_SOCKET, socket.SO_OOBINLINE, 1)
 
     def finish(self):
         super(ReplRequestHandler, self).finish()
@@ -52,18 +57,19 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
         logger.logDebug('RECV({}): {}'.format(len(data), repr(data)))
         if len(data) == 0 and self.request.gettimeout() is None:
             raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
+        if data[0] == '\x04':
+            raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
         self.__buffer += data
         return self.__buffer
 
     def __process_telnet_command(self):
         while True:
-            self.__buffer, codes = self.telnet.split(self.__buffer)
-            if not codes:
-                return self.__buffer
-            elif codes[1] == telnetproto.CODE['EOF']:     # TELNET linemode EOF
-                raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
-            else:
-                self.__write(self.telnet.control(codes))
+            self.__buffer, code = self.telnet.split(self.__buffer)
+            #logger.logDebug('SPLIT: {}, {}'.format(repr(self.__buffer), repr(code)))
+            if not code:
+                break
+            self.__write(self.telnet.control(code))
+        return self.__buffer
 
     def __readline(self):
         while True:
@@ -81,6 +87,9 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             return
         logger.logDebug('SEND({}): {}'.format(len(data), repr(data)))
         self.request.sendall(data)
+
+    def __connectionClose(self):
+        raise socket.error(errno.ECONNRESET, os.strerror(errno.ECONNRESET))
 
     def __telnetHandlerTerm(self, value):
         logger.logDebug('HANDLER: set TERM={}'.format(value))
@@ -138,6 +147,7 @@ class ReplRequestHandler(SocketServer.BaseRequestHandler, object):
             pass
         finally:
             self.request.settimeout(None)
+            self.__buffer = ''
 
     def __mainloop(self):
         self.__echo(self.greeting + ', TERM={}'.format(self.__termtype))
