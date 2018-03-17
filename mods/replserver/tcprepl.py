@@ -11,7 +11,7 @@ from telnetproto import TOKEN
 from logger import logger
 
 HOST = '127.0.0.1'
-HOST = ''
+#HOST = ''
 PORT = 2222
 
 NEWLINE = '\r\n'
