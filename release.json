@@ -3,7 +3,7 @@
     "sources":  [
         {
             "method":   "plain",
-            "root":     "mods/${wot_version}",
+            "root":     "",
             "files":    [ "${BUILDDIR}/${package}" ]
         },
         {
@@ -13,7 +13,7 @@
         },
         {
             "method":   "plain",
-            "root":     "client",
+            "root":     "",
             "files":    [ "client/client.py" ]
         }
     ]
